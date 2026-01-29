@@ -1,7 +1,12 @@
 import express, { NextFunction, Request, Response } from "express";
 import { z } from "zod";
+import bcrypt from "bcrypt";
+import jwt, { JwtPayload } from "jsonwebtoken";
 import { sendWhatsAppMessage } from "../services/twilio";
 import {
+  createAdmin,
+  getAdminByEmail,
+  getAdminById,
   getConversationByUserId,
   getUserById,
   getLatestPaymentByUserId,
@@ -10,6 +15,7 @@ import {
   listUsers,
   rejectPayment,
   updateConversation,
+  updateAdminPassword,
   updateUserStatus,
   verifyLatestPayment
 } from "../services/supabase";
@@ -26,6 +32,22 @@ const statusSchema = z.enum([
   UserStatus.VERIFIED,
   UserStatus.COMPLETED
 ]);
+
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1)
+});
+
+const changePasswordSchema = z.object({
+  oldPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+  email: z.string().email().optional()
+});
+
+const resetPasswordSchema = z.object({
+  email: z.string().email(),
+  newPassword: z.string().min(8)
+});
 
 function requireAdminToken(req: Request, res: Response, next: NextFunction) {
   // Token auth for admin endpoints.
@@ -44,7 +66,208 @@ function requireAdminToken(req: Request, res: Response, next: NextFunction) {
   return next();
 }
 
-adminRouter.post("/verify/:userId", requireAdminToken, async (req: Request, res: Response) => {
+interface AdminJwtPayload extends JwtPayload {
+  admin_id: string;
+  email: string;
+  token_version: number;
+}
+
+interface AdminAuthContext {
+  adminId?: string;
+  email?: string;
+  tokenVersion?: number;
+  usedAdminToken: boolean;
+}
+
+interface AdminAuthRequest extends Request {
+  adminAuth?: AdminAuthContext;
+}
+
+function requireJwtSecret(): string {
+  const secret = (process.env.JWT_SECRET || "").trim();
+  if (!secret) {
+    throw new Error("Missing required environment variable: JWT_SECRET");
+  }
+  return secret;
+}
+
+async function requireAdminAuth(
+  req: AdminAuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  const headerToken = req.header("X-Admin-Token");
+  const authHeader = req.header("Authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length)
+    : undefined;
+  const token = (headerToken || bearerToken || "").trim();
+  const expected = (process.env.ADMIN_TOKEN || "").trim();
+
+  if (expected && token === expected) {
+    req.adminAuth = { usedAdminToken: true };
+    return next();
+  }
+
+  if (!bearerToken) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const payload = jwt.verify(bearerToken, requireJwtSecret()) as AdminJwtPayload;
+    if (!payload?.admin_id || !payload?.email) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const admin = await getAdminById(payload.admin_id);
+    if (!admin) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (admin.token_version !== payload.token_version) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    req.adminAuth = {
+      adminId: admin.id,
+      email: admin.email,
+      tokenVersion: admin.token_version,
+      usedAdminToken: false
+    };
+    return next();
+  } catch (error) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+}
+
+function signAdminToken(
+  admin: { id: string; email: string; token_version: number }
+) {
+  return jwt.sign(
+    {
+      admin_id: admin.id,
+      email: admin.email,
+      token_version: admin.token_version
+    },
+    requireJwtSecret(),
+    { expiresIn: "12h" }
+  );
+}
+
+adminRouter.post("/login", async (req: Request, res: Response) => {
+  try {
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
+    const email = parsed.data.email.trim().toLowerCase();
+    const admin = await getAdminByEmail(email);
+    if (!admin) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const ok = await bcrypt.compare(parsed.data.password, admin.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const token = signAdminToken(admin);
+    return res.json({
+      token,
+      force_password_change: admin.force_password_change
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+adminRouter.post(
+  "/change-password",
+  requireAdminAuth,
+  async (req: AdminAuthRequest, res: Response) => {
+    try {
+      const parsed = changePasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid payload" });
+      }
+
+      const auth = req.adminAuth;
+      let admin =
+        auth?.adminId ? await getAdminById(auth.adminId) : null;
+
+      if (!admin) {
+        const email = parsed.data.email?.trim().toLowerCase();
+        if (!email) {
+          return res.status(400).json({ error: "Missing admin email" });
+        }
+        admin = await getAdminByEmail(email);
+      }
+
+      if (!admin) {
+        return res.status(404).json({ error: "Admin not found" });
+      }
+
+      const ok = await bcrypt.compare(
+        parsed.data.oldPassword,
+        admin.password_hash
+      );
+      if (!ok) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      const nextTokenVersion = admin.token_version + 1;
+      const passwordHash = await bcrypt.hash(parsed.data.newPassword, 12);
+      await updateAdminPassword(
+        admin.id,
+        passwordHash,
+        false,
+        nextTokenVersion
+      );
+
+      const token = signAdminToken({
+        id: admin.id,
+        email: admin.email,
+        token_version: nextTokenVersion
+      });
+
+      return res.json({ token, force_password_change: false });
+    } catch (error) {
+      return res.status(500).json({ error: "Server error" });
+    }
+  }
+);
+
+adminRouter.post("/reset-password", requireAdminToken, async (req: Request, res: Response) => {
+  try {
+    const parsed = resetPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
+    const email = parsed.data.email.trim().toLowerCase();
+    const passwordHash = await bcrypt.hash(parsed.data.newPassword, 12);
+    const existing = await getAdminByEmail(email);
+
+    if (!existing) {
+      await createAdmin(email, passwordHash, true);
+      return res.json({ ok: true });
+    }
+
+    await updateAdminPassword(
+      existing.id,
+      passwordHash,
+      true,
+      existing.token_version + 1
+    );
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+adminRouter.post("/verify/:userId", requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const parsed = idSchema.safeParse(req.params.userId);
     if (!parsed.success) {
@@ -90,7 +313,7 @@ function expectedAmountFromPlan(plan: string | null): number | null {
   return null;
 }
 
-adminRouter.post("/reject/:userId", requireAdminToken, async (req: Request, res: Response) => {
+adminRouter.post("/reject/:userId", requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const parsedId = idSchema.safeParse(req.params.userId);
     if (!parsedId.success) {
@@ -168,7 +391,7 @@ adminRouter.post("/reject/:userId", requireAdminToken, async (req: Request, res:
   }
 });
 
-adminRouter.post("/complete/:userId", requireAdminToken, async (req: Request, res: Response) => {
+adminRouter.post("/complete/:userId", requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const parsed = idSchema.safeParse(req.params.userId);
     if (!parsed.success) {
@@ -203,7 +426,7 @@ adminRouter.post("/complete/:userId", requireAdminToken, async (req: Request, re
   }
 });
 
-adminRouter.get("/users", requireAdminToken, async (req: Request, res: Response) => {
+adminRouter.get("/users", requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const statusValue = typeof req.query.status === "string" ? req.query.status : undefined;
     const parsed = statusValue ? statusSchema.safeParse(statusValue) : undefined;
@@ -218,7 +441,7 @@ adminRouter.get("/users", requireAdminToken, async (req: Request, res: Response)
   }
 });
 
-adminRouter.get("/users/:userId/profile", requireAdminToken, async (req: Request, res: Response) => {
+adminRouter.get("/users/:userId/profile", requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const parsed = idSchema.safeParse(req.params.userId);
     if (!parsed.success) {
@@ -240,7 +463,7 @@ adminRouter.get("/users/:userId/profile", requireAdminToken, async (req: Request
   }
 });
 
-adminRouter.get("/payments", requireAdminToken, async (req: Request, res: Response) => {
+adminRouter.get("/payments", requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const verifiedParam =
       typeof req.query.verified === "string" ? req.query.verified : undefined;
@@ -257,7 +480,7 @@ adminRouter.get("/payments", requireAdminToken, async (req: Request, res: Respon
 
 adminRouter.get(
   "/payments/:paymentId/screenshot",
-  requireAdminToken,
+  requireAdminAuth,
   async (req: Request, res: Response) => {
     try {
       const parsed = idSchema.safeParse(req.params.paymentId);

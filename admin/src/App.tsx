@@ -1,10 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
-import { fetchJson, getApiConfig, normalizeArrayResponse } from "./api";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  clearStoredJwt,
+  fetchJson,
+  getApiConfig,
+  getAuthToken,
+  getStoredJwt,
+  normalizeArrayResponse,
+  setStoredJwt
+} from "./api";
 import type { Payment, User, UserProfileResponse } from "./types";
+import { AuthLayout } from "./components/AuthLayout";
+import { Login } from "./pages/Login";
+import { ChangePassword } from "./pages/ChangePassword";
 import logo from "./assets/Astro_Devaraj_Logo.png";
 
 type UsersResponse = { users: User[] };
 type PaymentsResponse = { payments: Payment[] };
+type LoginResponse = { token: string; force_password_change: boolean };
+type ChangePasswordResponse = { token: string; force_password_change: boolean };
 type PaymentRow = Payment & { updated_at?: string };
 type DashboardTab = "INBOX" | "VERIFIED" | "COMPLETED";
 
@@ -21,6 +34,20 @@ function formatDate(value: string) {
 
 export default function App() {
   const { adminToken } = getApiConfig();
+  const [authToken, setAuthToken] = useState<string>(() => getStoredJwt());
+  const [forcePasswordChange, setForcePasswordChange] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [changeOldPassword, setChangeOldPassword] = useState("");
+  const [changeNewPassword, setChangeNewPassword] = useState("");
+  const [changeConfirmPassword, setChangeConfirmPassword] = useState("");
+  const [showTempPassword, setShowTempPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [changeLoading, setChangeLoading] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [activeView, setActiveView] = useState<DashboardTab>("INBOX");
@@ -58,6 +85,16 @@ export default function App() {
   const [usersCount, setUsersCount] = useState(0);
   const [paymentsCount, setPaymentsCount] = useState(0);
   const [searchVerified, setSearchVerified] = useState("");
+  const activeToken = authToken || adminToken;
+  const isAuthenticated = Boolean(activeToken);
+
+  function handleUnauthorized() {
+    clearStoredJwt();
+    setAuthToken("");
+    setIsUnauthorized(true);
+    setForcePasswordChange(false);
+    setLoginError("Session expired. Please sign in again.");
+  }
 
   const sortedUsers = useMemo(
     () =>
@@ -92,7 +129,7 @@ export default function App() {
       setUnexpectedShape(usersParsed.unexpected || paymentsParsed.unexpected);
     } catch (error) {
       if ((error as Error).message === "unauthorized") {
-        setIsUnauthorized(true);
+        handleUnauthorized();
       } else {
         setHasError(true);
       }
@@ -102,12 +139,87 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!adminToken) {
-      setIsUnauthorized(true);
+    if (!activeToken) {
       return;
     }
+    if (forcePasswordChange) {
+      return;
+    }
+    setIsUnauthorized(false);
     loadData();
-  }, [adminToken]);
+  }, [activeToken, forcePasswordChange]);
+
+  async function handleLoginSubmit(event: FormEvent) {
+    event.preventDefault();
+    setLoginLoading(true);
+    setLoginError(null);
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL}/admin/login`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: loginEmail.trim().toLowerCase(),
+            password: loginPassword
+          })
+        }
+      );
+      if (!response.ok) {
+        setLoginError("Invalid email or password.");
+        return;
+      }
+      const payload = (await response.json()) as LoginResponse;
+      setStoredJwt(payload.token);
+      setAuthToken(payload.token);
+      setForcePasswordChange(Boolean(payload.force_password_change));
+      setLoginPassword("");
+      setLoginError(null);
+      setIsUnauthorized(false);
+    } catch (error) {
+      setLoginError("Unable to reach server. Try again.");
+    } finally {
+      setLoginLoading(false);
+    }
+  }
+
+  async function handleChangePassword(event: FormEvent) {
+    event.preventDefault();
+    if (!changeNewPassword || changeNewPassword !== changeConfirmPassword) {
+      setLoginError("Passwords do not match.");
+      return;
+    }
+    setChangeLoading(true);
+    setLoginError(null);
+    try {
+      const response = await fetchJson<ChangePasswordResponse>(
+        "/admin/change-password",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            oldPassword: changeOldPassword,
+            newPassword: changeNewPassword
+          })
+        }
+      );
+      setStoredJwt(response.token);
+      setAuthToken(response.token);
+      setForcePasswordChange(false);
+      setChangeOldPassword("");
+      setChangeNewPassword("");
+      setChangeConfirmPassword("");
+      pushToast("success", "Password updated ✅");
+    } catch (error) {
+      if ((error as Error).message === "unauthorized") {
+        handleUnauthorized();
+      } else {
+        setLoginError("Could not update password. Try again.");
+      }
+    } finally {
+      setChangeLoading(false);
+    }
+  }
 
   async function handleVerify(userId: string) {
     try {
@@ -122,7 +234,7 @@ export default function App() {
       pushToast("success", "Payment verified ✅");
     } catch (error) {
       if ((error as Error).message === "unauthorized") {
-        setIsUnauthorized(true);
+        handleUnauthorized();
       } else {
         setHasError(true);
         pushToast("error", "Request failed. Try again.");
@@ -157,19 +269,27 @@ export default function App() {
 
     try {
       setRejecting((prev) => ({ ...prev, [payment.id]: true }));
+      const token = getAuthToken();
+      if (!token) {
+        handleUnauthorized();
+        return;
+      }
       const response = await fetch(
         `${import.meta.env.VITE_API_BASE_URL}/admin/reject/${payment.user_id}`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${adminToken}`,
+            Authorization: `Bearer ${token}`,
+            ...(adminToken && token === adminToken
+              ? { "X-Admin-Token": adminToken }
+              : {}),
             "Content-Type": "application/json"
           },
           body: JSON.stringify(payload)
         }
       );
       if (response.status === 401 || response.status === 403) {
-        setIsUnauthorized(true);
+        handleUnauthorized();
         return;
       }
       if (!response.ok) {
@@ -195,12 +315,20 @@ export default function App() {
   async function handleComplete(userId: string) {
     try {
       setCompleting((prev) => ({ ...prev, [userId]: true }));
+      const token = getAuthToken();
+      if (!token) {
+        handleUnauthorized();
+        return;
+      }
       const response = await fetch(
         `${import.meta.env.VITE_API_BASE_URL}/admin/complete/${userId}`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${adminToken}`
+            Authorization: `Bearer ${token}`,
+            ...(adminToken && token === adminToken
+              ? { "X-Admin-Token": adminToken }
+              : {})
           }
         }
       );
@@ -250,7 +378,8 @@ export default function App() {
     if (screenshotUrls[paymentId]) {
       return screenshotUrls[paymentId];
     }
-    if (!adminToken) {
+    const token = getAuthToken();
+    if (!token) {
       throw new Error("unauthorized");
     }
     setScreenshotLoading((prev) => ({ ...prev, [paymentId]: true }));
@@ -260,7 +389,10 @@ export default function App() {
         `${import.meta.env.VITE_API_BASE_URL}/admin/payments/${paymentId}/screenshot`,
         {
           headers: {
-            Authorization: `Bearer ${adminToken}`
+            Authorization: `Bearer ${token}`,
+            ...(adminToken && token === adminToken
+              ? { "X-Admin-Token": adminToken }
+              : {})
           }
         }
       );
@@ -343,40 +475,57 @@ export default function App() {
     return groups;
   }, [sortedUsers]);
 
-  if (isUnauthorized) {
+  if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#f7f2ec] text-neutral-900">
-        <header className="sticky top-0 z-20 border-b border-[#e8dfd4] bg-[#f9f4ee]/95 backdrop-blur">
-  <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-    <div className="flex items-center gap-3 min-w-0">
-      <div className="flex h-9 w-20 items-center justify-center rounded-xl bg-white/70 shadow-sm sm:h-10 sm:w-28">
-        <img
-          src={logo}
-          alt="Astro Deva-Raj"
-          className="h-full w-full object-contain"
+      <AuthLayout
+        title="Admin Sign In"
+        subtitle="Use your email and temporary password to continue."
+        footer={
+          <span>
+            Need a reset? Ask the developer to run the admin reset-password
+            command.
+          </span>
+        }
+      >
+        <Login
+          email={loginEmail}
+          password={loginPassword}
+          loading={loginLoading}
+          error={loginError}
+          showPassword={showLoginPassword}
+          onEmailChange={setLoginEmail}
+          onPasswordChange={setLoginPassword}
+          onTogglePassword={() => setShowLoginPassword((prev) => !prev)}
+          onSubmit={handleLoginSubmit}
         />
-      </div>
+      </AuthLayout>
+    );
+  }
 
-      <div className="min-w-0 leading-tight">
-        <p className="truncate font-heading text-sm font-black text-neutral-950 sm:text-lg">
-          The Life Forecast
-        </p>
-        <p className="truncate text-[11px] font-medium text-neutral-600 sm:text-sm">
-          Admin Dashboard
-        </p>
-      </div>
-    </div>
-
-    <span className="hidden sm:inline-flex items-center rounded-full border border-[#e4d7c8] bg-white/70 px-3 py-1 text-xs font-semibold text-neutral-600">
-      Secure access required
-    </span>
-  </div>
-
-  {/* slim brand accent line */}
-  <div className="h-1 w-full bg-[#593c1e]" />
-</header>
-      </div>
-
+  if (forcePasswordChange) {
+    return (
+      <AuthLayout
+        title="Change Password"
+        subtitle="Please set a new password before continuing."
+      >
+        <ChangePassword
+          oldPassword={changeOldPassword}
+          newPassword={changeNewPassword}
+          confirmPassword={changeConfirmPassword}
+          loading={changeLoading}
+          error={loginError}
+          showOldPassword={showTempPassword}
+          showNewPassword={showNewPassword}
+          showConfirmPassword={showConfirmPassword}
+          onOldPasswordChange={setChangeOldPassword}
+          onNewPasswordChange={setChangeNewPassword}
+          onConfirmPasswordChange={setChangeConfirmPassword}
+          onToggleOldPassword={() => setShowTempPassword((prev) => !prev)}
+          onToggleNewPassword={() => setShowNewPassword((prev) => !prev)}
+          onToggleConfirmPassword={() => setShowConfirmPassword((prev) => !prev)}
+          onSubmit={handleChangePassword}
+        />
+      </AuthLayout>
     );
   }
 
@@ -415,6 +564,19 @@ export default function App() {
         <span className="inline-flex sm:hidden items-center rounded-full border border-[#e4d7c8] bg-white/70 px-2.5 py-1 text-[11px] font-semibold text-neutral-600">
           Internal
         </span>
+
+        {authToken && (
+          <button
+            onClick={() => {
+              clearStoredJwt();
+              setAuthToken("");
+              setForcePasswordChange(false);
+            }}
+            className="hidden sm:inline-flex items-center rounded-full border border-[#e4d7c8] bg-white/70 px-3 py-1 text-xs font-semibold text-neutral-600 transition hover:bg-white"
+          >
+            Log out
+          </button>
+        )}
       </div>
     </div>
   </div>

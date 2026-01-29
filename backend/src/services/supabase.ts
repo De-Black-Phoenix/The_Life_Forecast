@@ -310,3 +310,78 @@ export async function listUnverifiedPayments(): Promise<PaymentWithUser[]> {
     })) || []
   );
 }
+
+export interface AdminRecord {
+  id: string;
+  email: string;
+  password_hash: string;
+  token_version: number;
+  force_password_change: boolean;
+  created_at: string;
+}
+
+export async function getAdminByEmail(
+  email: string
+): Promise<AdminRecord | null> {
+  const { data, error } = await supabase
+    .from("admins")
+    .select("*")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return (data as AdminRecord) || null;
+}
+
+export async function getAdminById(
+  adminId: string
+): Promise<AdminRecord | null> {
+  const { data, error } = await supabase
+    .from("admins")
+    .select("*")
+    .eq("id", adminId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return (data as AdminRecord) || null;
+}
+
+export async function createAdmin(
+  email: string,
+  passwordHash: string,
+  forcePasswordChange: boolean
+): Promise<AdminRecord> {
+  const admin: AdminRecord = {
+    id: uuidv4(),
+    email,
+    password_hash: passwordHash,
+    token_version: 0,
+    force_password_change: forcePasswordChange,
+    created_at: new Date().toISOString()
+  };
+
+  const { error } = await supabase.from("admins").insert(admin);
+  if (error) throw error;
+
+  return admin;
+}
+
+export async function updateAdminPassword(
+  adminId: string,
+  passwordHash: string,
+  forcePasswordChange: boolean,
+  nextTokenVersion: number
+): Promise<void> {
+  const { error } = await supabase
+    .from("admins")
+    .update({
+      password_hash: passwordHash,
+      force_password_change: forcePasswordChange,
+      token_version: nextTokenVersion
+    })
+    .eq("id", adminId);
+
+  if (error) throw error;
+}
