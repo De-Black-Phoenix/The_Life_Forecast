@@ -7,24 +7,19 @@ export function createServer() {
 
   app.disable("x-powered-by");
 
+  // Minimal CORS support for the admin dashboard.
   app.use((req: Request, res: Response, next: NextFunction) => {
-    const allowedOrigins = new Set([
-      "http://localhost:5173",
-      "http://127.0.0.1:5173"
-    ]);
+    const allowedOrigin = (process.env.ADMIN_DASHBOARD_ORIGIN || "").trim();
     const origin = req.headers.origin;
-    if (origin && allowedOrigins.has(origin)) {
+    if (allowedOrigin && origin === allowedOrigin) {
       res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization, X-Admin-Token"
+      );
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     }
-    res.setHeader("Vary", "Origin");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, X-Admin-Token"
-    );
-    res.setHeader(
-      "Access-Control-Allow-Methods",
-      "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    );
     if (req.method === "OPTIONS") {
       return res.sendStatus(204);
     }
