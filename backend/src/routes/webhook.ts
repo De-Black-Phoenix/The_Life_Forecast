@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import { z } from "zod";
 import { handleIncomingMessage } from "../services/botLogic";
 import { validateTwilioRequest } from "../services/twilio";
@@ -14,12 +14,12 @@ const webhookSchema = z.object({
   MediaContentType0: z.string().optional()
 });
 
-function toNumber(value: string | undefined) {
+function toNumber(value: string | undefined): number {
   const parsed = Number(value);
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-webhookRouter.post("/whatsapp", async (req, res) => {
+webhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
   try {
     const signature = req.header("X-Twilio-Signature") || "";
     const baseUrl = process.env.WEBHOOK_BASE_URL || "";

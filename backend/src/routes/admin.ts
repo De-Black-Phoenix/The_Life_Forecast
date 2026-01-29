@@ -1,4 +1,4 @@
-import express from "express";
+import express, { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { sendWhatsAppMessage } from "../services/twilio";
 import {
@@ -27,7 +27,7 @@ const statusSchema = z.enum([
   UserStatus.COMPLETED
 ]);
 
-function requireAdminToken(req: express.Request, res: express.Response, next: express.NextFunction) {
+function requireAdminToken(req: Request, res: Response, next: NextFunction) {
   // Token auth for admin endpoints.
   const headerToken = req.header("X-Admin-Token");
   const authHeader = req.header("Authorization");
@@ -44,7 +44,7 @@ function requireAdminToken(req: express.Request, res: express.Response, next: ex
   return next();
 }
 
-adminRouter.post("/verify/:userId", requireAdminToken, async (req, res) => {
+adminRouter.post("/verify/:userId", requireAdminToken, async (req: Request, res: Response) => {
   try {
     const parsed = idSchema.safeParse(req.params.userId);
     if (!parsed.success) {
@@ -90,7 +90,7 @@ function expectedAmountFromPlan(plan: string | null): number | null {
   return null;
 }
 
-adminRouter.post("/reject/:userId", requireAdminToken, async (req, res) => {
+adminRouter.post("/reject/:userId", requireAdminToken, async (req: Request, res: Response) => {
   try {
     const parsedId = idSchema.safeParse(req.params.userId);
     if (!parsedId.success) {
@@ -168,7 +168,7 @@ adminRouter.post("/reject/:userId", requireAdminToken, async (req, res) => {
   }
 });
 
-adminRouter.post("/complete/:userId", requireAdminToken, async (req, res) => {
+adminRouter.post("/complete/:userId", requireAdminToken, async (req: Request, res: Response) => {
   try {
     const parsed = idSchema.safeParse(req.params.userId);
     if (!parsed.success) {
@@ -203,7 +203,7 @@ adminRouter.post("/complete/:userId", requireAdminToken, async (req, res) => {
   }
 });
 
-adminRouter.get("/users", requireAdminToken, async (req, res) => {
+adminRouter.get("/users", requireAdminToken, async (req: Request, res: Response) => {
   try {
     const statusValue = typeof req.query.status === "string" ? req.query.status : undefined;
     const parsed = statusValue ? statusSchema.safeParse(statusValue) : undefined;
@@ -218,7 +218,7 @@ adminRouter.get("/users", requireAdminToken, async (req, res) => {
   }
 });
 
-adminRouter.get("/users/:userId/profile", requireAdminToken, async (req, res) => {
+adminRouter.get("/users/:userId/profile", requireAdminToken, async (req: Request, res: Response) => {
   try {
     const parsed = idSchema.safeParse(req.params.userId);
     if (!parsed.success) {
@@ -240,7 +240,7 @@ adminRouter.get("/users/:userId/profile", requireAdminToken, async (req, res) =>
   }
 });
 
-adminRouter.get("/payments", requireAdminToken, async (req, res) => {
+adminRouter.get("/payments", requireAdminToken, async (req: Request, res: Response) => {
   try {
     const verifiedParam =
       typeof req.query.verified === "string" ? req.query.verified : undefined;
@@ -258,7 +258,7 @@ adminRouter.get("/payments", requireAdminToken, async (req, res) => {
 adminRouter.get(
   "/payments/:paymentId/screenshot",
   requireAdminToken,
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     try {
       const parsed = idSchema.safeParse(req.params.paymentId);
       if (!parsed.success) {

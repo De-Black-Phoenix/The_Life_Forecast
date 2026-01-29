@@ -1,4 +1,4 @@
-import express from "express";
+import express, { NextFunction, Request, Response } from "express";
 import { webhookRouter } from "./routes/webhook";
 import { adminRouter } from "./routes/admin";
 
@@ -7,7 +7,7 @@ export function createServer() {
 
   app.disable("x-powered-by");
 
-  app.use((req, res, next) => {
+  app.use((req: Request, res: Response, next: NextFunction) => {
     const allowedOrigins = new Set([
       "http://localhost:5173",
       "http://127.0.0.1:5173"
@@ -37,7 +37,7 @@ export function createServer() {
   app.use("/webhook", webhookRouter);
   app.use("/admin", adminRouter);
 
-  app.use((_req, res) => {
+  app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: "Not Found" });
   });
 
