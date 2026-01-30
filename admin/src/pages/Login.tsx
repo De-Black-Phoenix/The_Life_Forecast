@@ -34,7 +34,7 @@ export function Login({
           type="email"
           value={email}
           onChange={(event) => onEmailChange(event.target.value)}
-          className="mt-1 w-full rounded-xl border border-[#e4d7c8] bg-white/90 px-3 py-2.5 text-sm text-neutral-900 shadow-sm transition focus:border-[#593c1e] focus:outline-none focus:ring-2 focus:ring-[#593c1e]/25"
+          className="mt-1 w-full rounded-xl border border-[#e4d7c8] bg-white/90 px-3 py-2.5 text-base text-neutral-900 shadow-sm transition focus:border-[#593c1e] focus:outline-none focus:ring-2 focus:ring-[#593c1e]/25 md:text-sm"
           placeholder="admin@example.com"
           required
         />
@@ -46,7 +46,7 @@ export function Login({
             type={showPassword ? "text" : "password"}
             value={password}
             onChange={(event) => onPasswordChange(event.target.value)}
-            className="w-full rounded-xl border border-[#e4d7c8] bg-white/90 px-3 py-2.5 pr-10 text-sm text-neutral-900 shadow-sm transition focus:border-[#593c1e] focus:outline-none focus:ring-2 focus:ring-[#593c1e]/25"
+            className="w-full rounded-xl border border-[#e4d7c8] bg-white/90 px-3 py-2.5 pr-10 text-base text-neutral-900 shadow-sm transition focus:border-[#593c1e] focus:outline-none focus:ring-2 focus:ring-[#593c1e]/25 md:text-sm"
             placeholder="••••••••"
             required
           />

@@ -47,7 +47,7 @@ export function ChangePassword({
             type={showOldPassword ? "text" : "password"}
             value={oldPassword}
             onChange={(event) => onOldPasswordChange(event.target.value)}
-            className="w-full rounded-xl border border-[#e4d7c8] bg-white/90 px-3 py-2.5 pr-10 text-sm text-neutral-900 shadow-sm transition focus:border-[#593c1e] focus:outline-none focus:ring-2 focus:ring-[#593c1e]/25"
+            className="w-full rounded-xl border border-[#e4d7c8] bg-white/90 px-3 py-2.5 pr-10 text-base text-neutral-900 shadow-sm transition focus:border-[#593c1e] focus:outline-none focus:ring-2 focus:ring-[#593c1e]/25 md:text-sm"
             placeholder="••••••••"
             required
           />
@@ -72,7 +72,7 @@ export function ChangePassword({
             type={showNewPassword ? "text" : "password"}
             value={newPassword}
             onChange={(event) => onNewPasswordChange(event.target.value)}
-            className="w-full rounded-xl border border-[#e4d7c8] bg-white/90 px-3 py-2.5 pr-10 text-sm text-neutral-900 shadow-sm transition focus:border-[#593c1e] focus:outline-none focus:ring-2 focus:ring-[#593c1e]/25"
+            className="w-full rounded-xl border border-[#e4d7c8] bg-white/90 px-3 py-2.5 pr-10 text-base text-neutral-900 shadow-sm transition focus:border-[#593c1e] focus:outline-none focus:ring-2 focus:ring-[#593c1e]/25 md:text-sm"
             placeholder="At least 8 characters"
             required
           />
@@ -97,7 +97,7 @@ export function ChangePassword({
             type={showConfirmPassword ? "text" : "password"}
             value={confirmPassword}
             onChange={(event) => onConfirmPasswordChange(event.target.value)}
-            className="w-full rounded-xl border border-[#e4d7c8] bg-white/90 px-3 py-2.5 pr-10 text-sm text-neutral-900 shadow-sm transition focus:border-[#593c1e] focus:outline-none focus:ring-2 focus:ring-[#593c1e]/25"
+            className="w-full rounded-xl border border-[#e4d7c8] bg-white/90 px-3 py-2.5 pr-10 text-base text-neutral-900 shadow-sm transition focus:border-[#593c1e] focus:outline-none focus:ring-2 focus:ring-[#593c1e]/25 md:text-sm"
             placeholder="Re-enter new password"
             required
           />
