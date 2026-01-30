@@ -566,16 +566,43 @@ export default function App() {
         </span>
 
         {authToken && (
-          <button
-            onClick={() => {
-              clearStoredJwt();
-              setAuthToken("");
-              setForcePasswordChange(false);
-            }}
-            className="hidden sm:inline-flex items-center rounded-full border border-[#e4d7c8] bg-white/70 px-3 py-1 text-xs font-semibold text-neutral-600 transition hover:bg-white"
-          >
-            Log out
-          </button>
+          <>
+            <button
+              onClick={() => {
+                clearStoredJwt();
+                setAuthToken("");
+                setForcePasswordChange(false);
+              }}
+              className="hidden sm:inline-flex items-center rounded-full border border-[#e4d7c8] bg-white/70 px-3 py-1 text-xs font-semibold text-neutral-600 transition hover:bg-white"
+            >
+              Log out
+            </button>
+            <button
+              onClick={() => {
+                clearStoredJwt();
+                setAuthToken("");
+                setForcePasswordChange(false);
+              }}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#593c1e] text-white shadow-sm transition hover:bg-[#4a3219] active:scale-[0.97] sm:hidden"
+              aria-label="Log out"
+              title="Log out"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <path d="M16 17l5-5-5-5" />
+                <path d="M21 12H9" />
+              </svg>
+            </button>
+          </>
         )}
       </div>
     </div>
@@ -639,7 +666,7 @@ export default function App() {
           <div className="absolute -right-24 -top-20 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
           <div className="absolute inset-y-0 right-0 hidden w-40 bg-white/5 sm:block" />
           <div className="relative z-10 max-w-2xl space-y-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-white/70">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-white/70 sm:text-xs sm:tracking-[0.35em]">
               The Life Forecast
             </p>
             <h1 className="font-heading text-xl font-black text-white sm:text-4xl">
