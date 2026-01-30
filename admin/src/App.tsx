@@ -583,7 +583,7 @@ export default function App() {
                 setAuthToken("");
                 setForcePasswordChange(false);
               }}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#593c1e] text-white shadow-sm transition hover:bg-[#4a3219] active:scale-[0.97] sm:hidden"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#593c1e] text-white shadow-sm transition hover:bg-[#4a3219] active:scale-[0.97] sm:hidden"
               aria-label="Log out"
               title="Log out"
             >
