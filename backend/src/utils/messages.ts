@@ -1,9 +1,9 @@
 export const messages = {
   welcome:
-    "🙏 *Welcome to The Life Forecast*\n" +
+    "🙏 *2026 Astrological Forecast*\n" +
     "Peace be with you.\n" +
     "A confidential Vedic Astrology (Jyotiṣa) reading prepared with care.\n" +
-    "For spiritual guidance and reflection.\n + \n",
+    "For spiritual guidance and reflection.\n\n",
 
   askProceed:
     "✨ *How would you like to proceed?*\n" +
