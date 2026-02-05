@@ -9,4 +9,8 @@ export interface User {
   selected_plan: string | null;
   service_type?: ServiceType;
   created_at: string;
+  reading_sent?: boolean;
+  reading_sent_at?: string | null;
+  reading_send_error?: string | null;
+  reading_outcome_text?: string | null;
 }

@@ -95,6 +95,9 @@ export interface PaymentRecord {
   rejection_note?: string | null;
   received_amount_ghs?: number | null;
   expected_amount_ghs?: number | null;
+  payment_verified_notified?: boolean;
+  payment_verified_notified_at?: string | null;
+  last_bot_message_error?: string | null;
 }
 
 export async function createConversation(
@@ -322,6 +325,52 @@ export async function verifyLatestPayment(userId: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function setPaymentVerifiedNotified(userId: string): Promise<void> {
+  const { error } = await supabase
+    .from("payments")
+    .update({
+      payment_verified_notified: true,
+      payment_verified_notified_at: new Date().toISOString(),
+      last_bot_message_error: null,
+      updated_at: new Date().toISOString()
+    })
+    .eq("user_id", userId);
+
+  if (error) throw error;
+}
+
+export async function setPaymentVerifiedNotifyError(
+  userId: string,
+  errMessage: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("payments")
+    .update({
+      last_bot_message_error: errMessage,
+      updated_at: new Date().toISOString()
+    })
+    .eq("user_id", userId);
+
+  if (error) throw error;
+}
+
+export async function setUserReadingOutcome(
+  userId: string,
+  payload: {
+    reading_outcome_text: string | null;
+    reading_sent: boolean;
+    reading_sent_at: string | null;
+    reading_send_error: string | null;
+  }
+): Promise<void> {
+  const { error } = await supabase
+    .from("users")
+    .update(payload)
+    .eq("id", userId);
+
+  if (error) throw error;
+}
+
 export async function rejectPayment(
   userId: string,
   payload: {
@@ -349,7 +398,7 @@ export async function listUsers(
 ): Promise<User[]> {
   let query = supabase
     .from("users")
-    .select("id, phone, status, selected_plan, service_type, created_at")
+    .select("id, phone, status, selected_plan, service_type, created_at, reading_sent, reading_sent_at, reading_send_error")
     .order("created_at", { ascending: false });
 
   if (status) {

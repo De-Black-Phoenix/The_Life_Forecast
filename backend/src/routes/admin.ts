@@ -2,7 +2,7 @@ import express, { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 import jwt, { JwtPayload } from "jsonwebtoken";
-import { sendWhatsAppMessage } from "../services/twilio";
+import { sendBotMessage, sendWhatsAppMessage } from "../services/twilio";
 import {
   createAdmin,
   getAdminByEmail,
@@ -14,6 +14,9 @@ import {
   listUnverifiedPayments,
   listUsers,
   rejectPayment,
+  setPaymentVerifiedNotified,
+  setPaymentVerifiedNotifyError,
+  setUserReadingOutcome,
   updateConversation,
   updateAdminPassword,
   updateUserStatus,
@@ -269,6 +272,9 @@ adminRouter.post("/reset-password", requireAdminToken, async (req: Request, res:
   }
 });
 
+const PAYMENT_VERIFIED_MESSAGE =
+  "✅ Payment verified successfully. Your reading is now being prepared. You'll receive your outcome here soon.";
+
 adminRouter.post("/verify/:userId", requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const parsed = idSchema.safeParse(req.params.userId);
@@ -283,6 +289,9 @@ adminRouter.post("/verify/:userId", requireAdminAuth, async (req: Request, res: 
       return res.status(404).json({ error: "User not found" });
     }
 
+    const payment = await getLatestPaymentByUserId(userId);
+    const alreadyNotified = payment?.payment_verified_notified === true;
+
     await verifyLatestPayment(userId);
     await updateUserStatus(userId, UserStatus.VERIFIED);
 
@@ -293,10 +302,23 @@ adminRouter.post("/verify/:userId", requireAdminAuth, async (req: Request, res: 
       });
     }
 
-    await sendWhatsAppMessage(user.phone, messages.paymentVerified);
+    if (!alreadyNotified) {
+      const result = await sendBotMessage(user.phone, PAYMENT_VERIFIED_MESSAGE, {
+        userId,
+        action: "payment_verified"
+      });
+      if (result.success) {
+        await setPaymentVerifiedNotified(userId);
+      } else {
+        await setPaymentVerifiedNotifyError(userId, result.error ?? "Unknown error");
+        console.error("[verify] Bot notification failed for user", userId, result.error);
+        return res.status(502).json({ error: "Verification saved but failed to send user message" });
+      }
+    }
 
     return res.json({ ok: true });
   } catch (error) {
+    console.error("[verify] Error:", error);
     return res.status(500).json({ error: "Server error" });
   }
 });
@@ -392,6 +414,80 @@ adminRouter.post("/reject/:userId", requireAdminAuth, async (req: Request, res: 
     return res.status(500).json({ error: "Server error" });
   }
 });
+
+const sendReadingOutcomeSchema = z.object({
+  text: z.string().min(1).max(100000),
+  forceResend: z.boolean().optional()
+});
+
+adminRouter.post(
+  "/send-reading-outcome/:userId",
+  requireAdminAuth,
+  async (req: Request, res: Response) => {
+    try {
+      const parsedId = idSchema.safeParse(req.params.userId);
+      if (!parsedId.success) {
+        return res.status(400).json({ error: "Invalid user ID" });
+      }
+      const parsedBody = sendReadingOutcomeSchema.safeParse(req.body);
+      if (!parsedBody.success) {
+        return res.status(400).json({ error: "Invalid body: text required" });
+      }
+
+      const userId = parsedId.data;
+      const user = await getUserById(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const userWithReading = user as typeof user & {
+        reading_sent?: boolean;
+      };
+      if (userWithReading.reading_sent && !parsedBody.data.forceResend) {
+        return res.status(409).json({
+          error: "Reading already sent",
+          code: "ALREADY_SENT"
+        });
+      }
+
+      const text = parsedBody.data.text.trim();
+      const result = await sendBotMessage(user.phone, text, {
+        userId,
+        action: "reading_outcome"
+      });
+
+      const now = new Date().toISOString();
+      if (result.success) {
+        await updateUserStatus(userId, UserStatus.COMPLETED);
+        const conversation = await getConversationByUserId(userId);
+        if (conversation) {
+          await updateConversation(conversation.id, {
+            current_step: ConversationStep.COMPLETED
+          });
+        }
+        await setUserReadingOutcome(userId, {
+          reading_outcome_text: text,
+          reading_sent: true,
+          reading_sent_at: now,
+          reading_send_error: null
+        });
+        return res.json({ ok: true, sent: true });
+      }
+
+      await setUserReadingOutcome(userId, {
+        reading_outcome_text: null,
+        reading_sent: false,
+        reading_sent_at: null,
+        reading_send_error: result.error ?? "Send failed"
+      });
+      console.error("[send-reading-outcome] failed for user", userId, result.error);
+      return res.status(502).json({ error: "Failed to send reading outcome", details: result.error });
+    } catch (error) {
+      console.error("[send-reading-outcome] Error:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  }
+);
 
 adminRouter.post("/complete/:userId", requireAdminAuth, async (req: Request, res: Response) => {
   try {
