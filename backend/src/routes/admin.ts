@@ -33,6 +33,8 @@ const statusSchema = z.enum([
   UserStatus.COMPLETED
 ]);
 
+const serviceTypeSchema = z.enum(["life_forecast", "destiny_readings"]);
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)
@@ -429,12 +431,20 @@ adminRouter.post("/complete/:userId", requireAdminAuth, async (req: Request, res
 adminRouter.get("/users", requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const statusValue = typeof req.query.status === "string" ? req.query.status : undefined;
-    const parsed = statusValue ? statusSchema.safeParse(statusValue) : undefined;
-    if (parsed && !parsed.success) {
+    const serviceTypeValue =
+      typeof req.query.service_type === "string" ? req.query.service_type : undefined;
+    const statusParsed = statusValue ? statusSchema.safeParse(statusValue) : undefined;
+    const serviceTypeParsed = serviceTypeValue
+      ? serviceTypeSchema.safeParse(serviceTypeValue)
+      : undefined;
+    if (statusParsed && !statusParsed.success) {
       return res.status(400).json({ error: "Invalid status" });
     }
+    if (serviceTypeParsed && !serviceTypeParsed.success) {
+      return res.status(400).json({ error: "Invalid service_type" });
+    }
 
-    const users = await listUsers(parsed?.data);
+    const users = await listUsers(statusParsed?.data, serviceTypeParsed?.data);
     return res.json({ users });
   } catch (error) {
     return res.status(500).json({ error: "Server error" });
@@ -467,11 +477,19 @@ adminRouter.get("/payments", requireAdminAuth, async (req: Request, res: Respons
   try {
     const verifiedParam =
       typeof req.query.verified === "string" ? req.query.verified : undefined;
+    const serviceTypeParam =
+      typeof req.query.service_type === "string" ? req.query.service_type : undefined;
     if (verifiedParam && verifiedParam !== "false") {
       return res.status(400).json({ error: "Invalid verified filter" });
     }
+    const serviceTypeParsed = serviceTypeParam
+      ? serviceTypeSchema.safeParse(serviceTypeParam)
+      : undefined;
+    if (serviceTypeParam && !serviceTypeParsed?.success) {
+      return res.status(400).json({ error: "Invalid service_type" });
+    }
 
-    const payments = await listUnverifiedPayments();
+    const payments = await listUnverifiedPayments(serviceTypeParsed?.data);
     return res.json({ payments });
   } catch (error) {
     return res.status(500).json({ error: "Server error" });

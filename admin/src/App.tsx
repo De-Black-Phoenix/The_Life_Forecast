@@ -8,7 +8,7 @@ import {
   normalizeArrayResponse,
   setStoredJwt
 } from "./api";
-import type { Payment, User, UserProfileResponse } from "./types";
+import type { Payment, User, UserProfileResponse, ServiceType } from "./types";
 import { AuthLayout } from "./components/AuthLayout";
 import { Login } from "./pages/Login";
 import { ChangePassword } from "./pages/ChangePassword";
@@ -85,6 +85,11 @@ export default function App() {
   const [usersCount, setUsersCount] = useState(0);
   const [paymentsCount, setPaymentsCount] = useState(0);
   const [searchVerified, setSearchVerified] = useState("");
+  const [inboxServiceFilter, setInboxServiceFilter] = useState<
+    "" | ServiceType
+  >("");
+  const [verifiedCompletedServiceFilter, setVerifiedCompletedServiceFilter] =
+    useState<"" | ServiceType>("");
   const activeToken = authToken || adminToken;
   const isAuthenticated = Boolean(activeToken);
 
@@ -110,9 +115,13 @@ export default function App() {
     setHasError(false);
     setUnexpectedShape(false);
     try {
+      const paymentsUrl =
+        inboxServiceFilter === ""
+          ? "/admin/payments?verified=false"
+          : `/admin/payments?verified=false&service_type=${inboxServiceFilter}`;
       const [usersResponse, paymentsResponse] = await Promise.all([
         fetchJson<UsersResponse>("/admin/users"),
-        fetchJson<PaymentsResponse>("/admin/payments?verified=false")
+        fetchJson<PaymentsResponse>(paymentsUrl)
       ]);
       const usersParsed = normalizeArrayResponse<User>(usersResponse, [
         "users",
@@ -147,7 +156,7 @@ export default function App() {
     }
     setIsUnauthorized(false);
     loadData();
-  }, [activeToken, forcePasswordChange]);
+  }, [activeToken, forcePasswordChange, inboxServiceFilter]);
 
   async function handleLoginSubmit(event: FormEvent) {
     event.preventDefault();
@@ -450,15 +459,29 @@ export default function App() {
     [sortedUsers]
   );
 
+  const verifiedByService = useMemo(() => {
+    if (!verifiedCompletedServiceFilter) return verifiedUsers;
+    return verifiedUsers.filter(
+      (user) => (user.service_type || "life_forecast") === verifiedCompletedServiceFilter
+    );
+  }, [verifiedUsers, verifiedCompletedServiceFilter]);
+
+  const completedFiltered = useMemo(() => {
+    if (!verifiedCompletedServiceFilter) return completedUsers;
+    return completedUsers.filter(
+      (user) => (user.service_type || "life_forecast") === verifiedCompletedServiceFilter
+    );
+  }, [completedUsers, verifiedCompletedServiceFilter]);
+
   const verifiedFiltered = useMemo(() => {
     const query = searchVerified.trim().toLowerCase();
     if (!query) {
-      return verifiedUsers;
+      return verifiedByService;
     }
-    return verifiedUsers.filter((user) =>
+    return verifiedByService.filter((user) =>
       user.phone.toLowerCase().includes(query)
     );
-  }, [verifiedUsers, searchVerified]);
+  }, [verifiedByService, searchVerified]);
 
   const notCompletedGroups = useMemo(() => {
     const groups: Record<string, User[]> = {
@@ -677,14 +700,14 @@ export default function App() {
             </p>
           </div>
         </section>
-        <div className="flex w-full items-center justify-between gap-3 rounded-2xl border border-[#e8dfd4] bg-[#fbf8f4] p-2">
-          <div className="flex w-full overflow-x-auto">
-            <div className="flex w-max gap-2">
+        <div className="flex w-full min-w-0 items-center justify-between gap-3 rounded-2xl border border-[#e8dfd4] bg-[#fbf8f4] p-2">
+          <div className="min-w-0 flex-1 overflow-x-auto">
+            <div className="flex w-max justify-center gap-1.5 sm:gap-2 sm:justify-start">
               {viewTabs.map((tab) => (
                 <button
                   key={tab.value}
                   onClick={() => setActiveView(tab.value)}
-                  className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold transition sm:px-4 ${
+                  className={`shrink-0 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition sm:px-4 sm:py-1 sm:text-xs ${
                     activeView === tab.value
                       ? "border-[#593c1e] bg-[#593c1e] text-white"
                       : "border-[#e4d7c8] bg-white/70 text-neutral-600 hover:border-[#593c1e]/50"
@@ -701,7 +724,7 @@ export default function App() {
           <>
 
         <section className="rounded-2xl border border-[#e8dfd4] bg-[#fbf8f4] p-4 shadow-[0_12px_30px_-24px_rgba(89,60,30,0.35)] sm:p-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="font-heading text-lg font-black text-neutral-950 sm:text-2xl">
                 Payments to Verify
@@ -709,6 +732,27 @@ export default function App() {
               <p className="text-xs text-neutral-600 sm:text-sm">
                 Review payment screenshots and verify.
               </p>
+            </div>
+            <div className="min-w-0 flex-1 overflow-x-auto sm:flex-initial">
+              <div className="flex w-max gap-1.5 sm:gap-2">
+                {[
+                  { value: "" as "" | ServiceType, label: "All" },
+                  { value: "life_forecast" as const, label: "Life Forecast" },
+                  { value: "destiny_readings" as const, label: "Destiny Readings" }
+                ].map((tab) => (
+                  <button
+                    key={tab.value || "all"}
+                    onClick={() => setInboxServiceFilter(tab.value)}
+                    className={`shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold transition sm:px-3 sm:py-1 sm:text-xs ${
+                      inboxServiceFilter === tab.value
+                        ? "border-[#593c1e] bg-[#593c1e] text-white"
+                        : "border-[#e4d7c8] bg-white/70 text-neutral-600 hover:border-[#593c1e]/50"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -729,9 +773,22 @@ export default function App() {
                   className="flex flex-col gap-3 border-b border-[#eadfce] py-3 text-[13px] text-neutral-700 md:flex-row md:items-center md:justify-between"
                 >
                   <div className="space-y-1 text-xs text-neutral-600">
-                    <p className="text-sm font-semibold text-neutral-900">
-                      {payment.user?.phone || "Unknown user"}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-neutral-900">
+                        {payment.user?.phone || "Unknown user"}
+                      </p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          payment.service_type === "destiny_readings"
+                            ? "bg-[#6b4a28]/10 text-[#6b4a28]"
+                            : "bg-[#593c1e]/10 text-[#593c1e]"
+                        }`}
+                      >
+                        {payment.service_type === "destiny_readings"
+                          ? "Destiny Readings"
+                          : "Life Forecast"}
+                      </span>
+                    </div>
                     <p>Plan: {payment.user?.selected_plan || "—"}</p>
                     <p>
                       Last Updated:{" "}
@@ -867,7 +924,7 @@ export default function App() {
 
         {activeView === "COMPLETED" && (
           <section className="rounded-2xl border border-[#e8dfd4] bg-[#fbf8f4] p-4 shadow-[0_12px_30px_-24px_rgba(89,60,30,0.35)] sm:p-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="font-heading text-lg font-black text-neutral-950 sm:text-2xl">
                   Completed
@@ -876,15 +933,36 @@ export default function App() {
                   Archived users with completed readings.
                 </p>
               </div>
+              <div className="min-w-0 flex-1 overflow-x-auto sm:flex-initial">
+                <div className="flex w-max gap-1.5 sm:gap-2">
+                  {[
+                    { value: "" as "" | ServiceType, label: "All" },
+                    { value: "life_forecast" as const, label: "Life Forecast" },
+                    { value: "destiny_readings" as const, label: "Destiny Readings" }
+                  ].map((tab) => (
+                    <button
+                      key={tab.value || "all"}
+                      onClick={() => setVerifiedCompletedServiceFilter(tab.value)}
+                      className={`shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold transition sm:px-3 sm:py-1 sm:text-xs ${
+                        verifiedCompletedServiceFilter === tab.value
+                          ? "border-[#593c1e] bg-[#593c1e] text-white"
+                          : "border-[#e4d7c8] bg-white/70 text-neutral-600 hover:border-[#593c1e]/50"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="mt-4 divide-y divide-[#eadfce] sm:mt-5">
-              {completedUsers.length === 0 ? (
+              {completedFiltered.length === 0 ? (
                 <div className="rounded-xl border border-[#e8dfd4] bg-white/70 p-3 text-xs text-neutral-500 sm:p-4 sm:text-sm">
                   No completed users found.
                 </div>
               ) : (
-                completedUsers.map((user) => (
+                completedFiltered.map((user) => (
                   <div
                     key={user.id}
                     className="flex flex-col gap-2 border-b border-[#eadfce] py-3 text-[13px] text-neutral-700 sm:flex-row sm:items-center sm:justify-between sm:py-4 sm:text-sm"
@@ -911,7 +989,7 @@ export default function App() {
 
         {activeView === "VERIFIED" && (
         <section className="rounded-2xl border border-[#e8dfd4] bg-[#fbf8f4] p-4 shadow-[0_12px_30px_-24px_rgba(89,60,30,0.35)] sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div>
               <h2 className="font-heading text-lg font-black text-neutral-950 sm:text-2xl">
                 ✅ Verified — Ready for Reading
@@ -920,12 +998,35 @@ export default function App() {
                 Verified users ready to begin their reading.
               </p>
             </div>
-            <input
-              value={searchVerified}
-              onChange={(event) => setSearchVerified(event.target.value)}
-              placeholder="Search by phone"
-              className="w-full rounded-xl border border-[#e4d7c8] bg-white/80 px-3 py-2 text-sm sm:w-64"
-            />
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <div className="min-w-0 flex-1 overflow-x-auto sm:flex-initial">
+                <div className="flex w-max gap-1.5 sm:gap-2">
+                  {[
+                    { value: "" as "" | ServiceType, label: "All" },
+                    { value: "life_forecast" as const, label: "Life Forecast" },
+                    { value: "destiny_readings" as const, label: "Destiny Readings" }
+                  ].map((tab) => (
+                    <button
+                      key={tab.value || "all"}
+                      onClick={() => setVerifiedCompletedServiceFilter(tab.value)}
+                      className={`shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold transition sm:px-3 sm:py-1 sm:text-xs ${
+                        verifiedCompletedServiceFilter === tab.value
+                          ? "border-[#593c1e] bg-[#593c1e] text-white"
+                          : "border-[#e4d7c8] bg-white/70 text-neutral-600 hover:border-[#593c1e]/50"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <input
+                value={searchVerified}
+                onChange={(event) => setSearchVerified(event.target.value)}
+                placeholder="Search by phone"
+                className="w-full rounded-xl border border-[#e4d7c8] bg-white/80 px-3 py-2 text-sm sm:w-64"
+              />
+            </div>
           </div>
 
           <div className="mt-4 divide-y divide-[#eadfce] sm:mt-5">
@@ -1025,6 +1126,22 @@ export default function App() {
                 <p className="text-xs uppercase text-neutral-500">Status</p>
                 <p className="font-semibold">
                   {profileData.user.status.replace("_", " ")}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase text-neutral-500">Service type</p>
+                <p className="font-semibold">
+                  <span
+                    className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      profileData.user.service_type === "destiny_readings"
+                        ? "bg-[#6b4a28]/10 text-[#6b4a28]"
+                        : "bg-[#593c1e]/10 text-[#593c1e]"
+                    }`}
+                  >
+                    {profileData.user.service_type === "destiny_readings"
+                      ? "Destiny Readings"
+                      : "Life Forecast"}
+                  </span>
                 </p>
               </div>
               <div>

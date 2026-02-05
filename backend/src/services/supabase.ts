@@ -81,6 +81,8 @@ export async function getConversationByUserId(
   return (data as Conversation) || null;
 }
 
+export type ServiceType = "life_forecast" | "destiny_readings";
+
 export interface PaymentRecord {
   id: string;
   user_id: string;
@@ -88,6 +90,7 @@ export interface PaymentRecord {
   verified: boolean;
   created_at: string;
   updated_at: string;
+  service_type?: ServiceType;
   rejection_reason?: string | null;
   rejection_note?: string | null;
   received_amount_ghs?: number | null;
@@ -129,11 +132,15 @@ export async function updateConversation(
 export async function updateUserStatus(
   userId: string,
   status: UserStatus,
-  selectedPlan?: string | null
+  selectedPlan?: string | null,
+  serviceType?: ServiceType
 ): Promise<void> {
   const updates: Record<string, unknown> = { status };
   if (selectedPlan !== undefined) {
     updates.selected_plan = selectedPlan;
+  }
+  if (serviceType !== undefined) {
+    updates.service_type = serviceType;
   }
 
   const { error } = await supabase.from("users").update(updates).eq("id", userId);
@@ -143,13 +150,15 @@ export async function updateUserStatus(
 
 export async function createPayment(
   userId: string,
-  screenshotUrl: string
+  screenshotUrl: string,
+  serviceType: ServiceType = "life_forecast"
 ): Promise<void> {
   const now = new Date().toISOString();
   const updatePayload = {
     screenshot_url: screenshotUrl,
     verified: false,
     updated_at: now,
+    service_type: serviceType,
     rejection_reason: null,
     rejection_note: null,
     received_amount_ghs: null,
@@ -172,6 +181,7 @@ export async function createPayment(
       verified: false,
       created_at: now,
       updated_at: now,
+      service_type: serviceType,
       rejection_reason: null,
       rejection_note: null,
       received_amount_ghs: null,
@@ -205,11 +215,95 @@ export async function getLatestPaymentByUserId(
     .from("payments")
     .select("*")
     .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) throw error;
 
   return (data as PaymentRecord) || null;
+}
+
+export interface SubmissionRecord {
+  id: string;
+  user_id: string;
+  conversation_id: string;
+  payment_id: string;
+  created_at: string;
+  admin_notified: boolean;
+  admin_notified_at: string | null;
+}
+
+export async function createSubmission(
+  userId: string,
+  conversationId: string,
+  paymentId: string
+): Promise<SubmissionRecord> {
+  const submission: SubmissionRecord = {
+    id: uuidv4(),
+    user_id: userId,
+    conversation_id: conversationId,
+    payment_id: paymentId,
+    created_at: new Date().toISOString(),
+    admin_notified: false,
+    admin_notified_at: null
+  };
+
+  const { error } = await supabase.from("submissions").insert(submission);
+
+  if (error) throw error;
+
+  return submission;
+}
+
+export async function getSubmissionById(
+  submissionId: string
+): Promise<SubmissionRecord | null> {
+  const { data, error } = await supabase
+    .from("submissions")
+    .select("*")
+    .eq("id", submissionId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return (data as SubmissionRecord) || null;
+}
+
+export async function setSubmissionAdminNotified(
+  submissionId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("submissions")
+    .update({
+      admin_notified: true,
+      admin_notified_at: new Date().toISOString()
+    })
+    .eq("id", submissionId);
+
+  if (error) throw error;
+}
+
+/**
+ * Invoke Supabase Edge Function to send admin notification email.
+ * Call this after creating a submission record.
+ */
+export async function invokeNotifyAdminEdgeFunction(
+  submissionId: string
+): Promise<void> {
+  const url = `${supabaseUrl}/functions/v1/notify-admin-payment-submitted`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${supabaseKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ submission_id: submissionId })
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Edge function notify-admin-payment-submitted failed: ${res.status} ${text}`);
+  }
 }
 
 export async function verifyLatestPayment(userId: string): Promise<void> {
@@ -249,14 +343,20 @@ export async function rejectPayment(
   if (error) throw error;
 }
 
-export async function listUsers(status?: string): Promise<User[]> {
+export async function listUsers(
+  status?: string,
+  serviceType?: ServiceType
+): Promise<User[]> {
   let query = supabase
     .from("users")
-    .select("id, phone, status, selected_plan, created_at")
+    .select("id, phone, status, selected_plan, service_type, created_at")
     .order("created_at", { ascending: false });
 
   if (status) {
     query = query.eq("status", status);
+  }
+  if (serviceType) {
+    query = query.eq("service_type", serviceType);
   }
 
   const { data, error } = await query;
@@ -272,6 +372,7 @@ export interface PaymentWithUser {
   verified: boolean;
   created_at: string;
   updated_at: string;
+  service_type?: ServiceType;
   rejection_reason?: string | null;
   rejection_note?: string | null;
   received_amount_ghs?: number | null;
@@ -283,15 +384,22 @@ export interface PaymentWithUser {
   } | null;
 }
 
-export async function listUnverifiedPayments(): Promise<PaymentWithUser[]> {
-  const { data, error } = await supabase
+export async function listUnverifiedPayments(
+  serviceType?: ServiceType
+): Promise<PaymentWithUser[]> {
+  let query = supabase
     .from("payments")
     .select(
-      "id, user_id, screenshot_url, verified, created_at, updated_at, rejection_reason, rejection_note, received_amount_ghs, expected_amount_ghs, users (phone, selected_plan, status)"
+      "id, user_id, screenshot_url, verified, created_at, updated_at, service_type, rejection_reason, rejection_note, received_amount_ghs, expected_amount_ghs, users (phone, selected_plan, status)"
     )
     .eq("verified", false)
     .order("updated_at", { ascending: false });
 
+  if (serviceType) {
+    query = query.eq("service_type", serviceType);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
 
   return (
@@ -302,6 +410,7 @@ export async function listUnverifiedPayments(): Promise<PaymentWithUser[]> {
       verified: row.verified,
       created_at: row.created_at,
       updated_at: row.updated_at,
+      service_type: row.service_type,
       rejection_reason: row.rejection_reason,
       rejection_note: row.rejection_note,
       received_amount_ghs: row.received_amount_ghs,

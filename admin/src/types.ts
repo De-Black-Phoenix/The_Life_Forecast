@@ -10,8 +10,11 @@ export interface User {
   phone: string;
   status: UserStatus;
   selected_plan: string | null;
+  service_type?: ServiceType;
   created_at: string;
 }
+
+export type ServiceType = "life_forecast" | "destiny_readings";
 
 export interface Payment {
   id: string;
@@ -20,6 +23,7 @@ export interface Payment {
   verified: boolean;
   created_at: string;
   updated_at?: string;
+  service_type?: ServiceType;
   user?: {
     phone: string;
     selected_plan: string | null;

@@ -7,8 +7,9 @@ export const messages = {
 
   askProceed:
     "✨ *How would you like to proceed?*\n" +
-    "1. Proceed\n" +
-    "2. Ask a question\n" +
+    "1. Life Forecast\n" +
+    "2. Destiny Readings\n" +
+    "3. Ask a question\n" +
     "\n" +
     "↩️ Reply 00 for menu.",
 
@@ -243,5 +244,58 @@ export const messages = {
   invalidOption:
     "⚠️ *Invalid Response*\n" +
     "Please reply with a valid numbered option.\n" +
-    "Example: 1"
+    "Example: 1",
+
+  // Destiny Readings variants (same as above but "Life Forecast" → "Destiny Readings")
+  confidentialityDestiny:
+    "🔒 *Confidentiality*\n" +
+    "Your details are kept strictly confidential.\n" +
+    "They are used only for your Destiny Readings reading." +
+    "\n",
+
+  optionsDestiny:
+    "💫 *Reading Options* (Rate: $1 = GHS 12)\n" +
+    "1. 1 Year — $150 (GHS 1,800)\n" +
+    "2. 3 Years — $250 (GHS 3,000)\n" +
+    "3. 5 Years — $350 (GHS 4,200)\n" +
+    "\n" +
+    "🔒 *Confidentiality*\n" +
+    "Your details are kept strictly confidential.\n" +
+    "They are used only for your Destiny Readings reading.\n" +
+    "\n" +
+    "Reply 1, 2, or 3.\n" +
+    "↩️ Reply 0 to go back.\n" +
+    "↩️ Reply 00 for menu.",
+
+  paymentInstructionsDestiny:
+    "💳 *Mobile Money Payment* (GHS)\n" +
+    "Name: *David Asamoah*\n" +
+    "MoMo Number: *0541940276*\n" +
+    "Network: *MTN*\n" +
+    "Reference: *Destiny Readings*\n" +
+    "\n" +
+    "📸 *After Payment*\n" +
+    "Send a screenshot of your payment confirmation here.\n" +
+    "\n" +
+    "📝 *Note*\n" +
+    "Payments are manually verified.\n" +
+    "↩️ Reply 0 to go back.\n" +
+    "↩️ Reply 00 for menu.",
+
+  paymentVerifiedDestiny:
+    "✅ *Payment Confirmed*\n" +
+    "Your payment has been successfully received and verified.\n" +
+    "\n" +
+    "🔱 *Next Step*\n" +
+    "Your Destiny Readings reading is now being prepared.\n" +
+    "You will be contacted once it is ready.\n" +
+    "\n" +
+    "🔒 All details remain strictly confidential.",
+
+  completedDestiny:
+    "✅ *Reading Completed*\n" +
+    "Your Destiny Readings reading has been completed.\n" +
+    "Thank you for your trust.\n" +
+    "\n" +
+    "🔒 All details remain strictly confidential."
 };

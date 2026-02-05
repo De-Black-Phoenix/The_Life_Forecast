@@ -4,8 +4,11 @@ import { ConversationStep, UserStatus } from "../utils/states";
 import {
   createConversation,
   createPayment,
+  createSubmission,
   getConversationByUserId,
+  getLatestPaymentByUserId,
   getOrCreateUserByPhone,
+  invokeNotifyAdminEdgeFunction,
   updateConversation,
   updateUserStatus
 } from "./supabase";
@@ -33,9 +36,24 @@ function normalizeLower(input: string | undefined) {
   return normalizeText(input).toLowerCase();
 }
 
-function isProceed(body: string) {
+function isLifeForecast(body: string) {
   const normalized = normalizeLower(body);
-  return ["yes", "y", "1", "ok", "okay", "proceed"].includes(normalized);
+  return normalized === "1" || normalized === "life forecast";
+}
+
+function isDestinyReadings(body: string) {
+  const normalized = normalizeLower(body);
+  return normalized === "2" || normalized === "destiny readings";
+}
+
+function isAskQuestion(body: string) {
+  const normalized = normalizeLower(body);
+  return normalized === "3" || normalized === "ask a question";
+}
+
+function getServiceType(conversation: { collected_data: Record<string, unknown> }): "life_forecast" | "destiny_readings" {
+  const t = conversation.collected_data._serviceType;
+  return t === "destiny_readings" ? "destiny_readings" : "life_forecast";
 }
 
 function parsePlan(body: string) {
@@ -85,7 +103,12 @@ async function advanceStep(
   });
 }
 
-function promptForStep(step: ConversationStep) {
+function promptForStep(
+  step: ConversationStep,
+  conversation: { collected_data: Record<string, unknown> } | null
+) {
+  const serviceType = conversation ? getServiceType(conversation) : "life_forecast";
+  const isDestiny = serviceType === "destiny_readings";
   switch (step) {
     case ConversationStep.WELCOME:
       return `${messages.welcome}\n${messages.askProceed}`;
@@ -96,9 +119,9 @@ function promptForStep(step: ConversationStep) {
     case ConversationStep.PAYMENT_ISSUE_MENU:
       return messages.paymentRejectedInvalid;
     case ConversationStep.CONFIDENTIALITY:
-      return messages.options;
+      return isDestiny ? messages.optionsDestiny : messages.options;
     case ConversationStep.OPTIONS:
-      return messages.options;
+      return isDestiny ? messages.optionsDestiny : messages.options;
     case ConversationStep.WAITING_PAYMENT:
       return messages.waitingPayment;
     case ConversationStep.COLLECT_FULL_NAME:
@@ -120,9 +143,9 @@ function promptForStep(step: ConversationStep) {
     case ConversationStep.AWAITING_VERIFICATION:
       return messages.awaitingVerification;
     case ConversationStep.VERIFIED_NOTIFIED:
-      return messages.paymentVerified;
+      return isDestiny ? messages.paymentVerifiedDestiny : messages.paymentVerified;
     case ConversationStep.COMPLETED:
-      return messages.completed;
+      return isDestiny ? messages.completedDestiny : messages.completed;
     default:
       return messages.askProceed;
   }
@@ -176,11 +199,13 @@ export async function handleIncomingMessage(
   }
 
   if (user.status === UserStatus.COMPLETED) {
-    return { reply: messages.completed };
+    const isDestiny = (user as { service_type?: string }).service_type === "destiny_readings";
+    return { reply: isDestiny ? messages.completedDestiny : messages.completed };
   }
 
   if (user.status === UserStatus.VERIFIED) {
-    return { reply: messages.paymentVerified };
+    const isDestiny = (user as { service_type?: string }).service_type === "destiny_readings";
+    return { reply: isDestiny ? messages.paymentVerifiedDestiny : messages.paymentVerified };
   }
 
   const bodyText = normalizeText(input.body);
@@ -196,7 +221,8 @@ export async function handleIncomingMessage(
     if (!mediaParsed.success) {
       return { reply: messages.waitingPayment };
     }
-    await createPayment(user.id, mediaParsed.data);
+    const serviceType = getServiceType(conversation!);
+    await createPayment(user.id, mediaParsed.data, serviceType);
     await updateUserStatus(user.id, UserStatus.PAYMENT_SUBMITTED);
     const nextStep = getNextDetailsStep(conversation!.collected_data);
     await advanceStep(conversation!, nextStep);
@@ -226,7 +252,7 @@ export async function handleIncomingMessage(
       collected_data: withStepHistory(conversation, history),
       current_step: previousStep
     });
-    return { reply: promptForStep(previousStep) };
+    return { reply: promptForStep(previousStep, conversation) };
   }
 
   if (
@@ -247,13 +273,23 @@ export async function handleIncomingMessage(
       if (!parsed.success) {
         return { reply: messages.askProceed };
       }
-      if (parsed.data.trim() === "2") {
+      if (isAskQuestion(parsed.data)) {
         await advanceStep(conversation, ConversationStep.FAQ_MENU);
         return { reply: messages.faqMenu };
       }
-      if (isProceed(parsed.data)) {
-        await advanceStep(conversation, ConversationStep.OPTIONS);
+      if (isLifeForecast(parsed.data)) {
+        await updateUserStatus(user.id, user.status, undefined, "life_forecast");
+        await advanceStep(conversation, ConversationStep.OPTIONS, {
+          _serviceType: "life_forecast"
+        });
         return { reply: messages.options };
+      }
+      if (isDestinyReadings(parsed.data)) {
+        await updateUserStatus(user.id, user.status, undefined, "destiny_readings");
+        await advanceStep(conversation, ConversationStep.OPTIONS, {
+          _serviceType: "destiny_readings"
+        });
+        return { reply: messages.optionsDestiny };
       }
       return { reply: messages.askProceed };
     }
@@ -274,7 +310,10 @@ export async function handleIncomingMessage(
         case "4":
           return { reply: `${messages.faqRefund}\n${messages.faqMenu}` };
         case "5":
-          await advanceStep(conversation, ConversationStep.OPTIONS);
+          await updateUserStatus(user.id, user.status, undefined, "life_forecast");
+          await advanceStep(conversation, ConversationStep.OPTIONS, {
+            _serviceType: "life_forecast"
+          });
           return { reply: messages.options };
         case "6":
           await advanceStep(conversation, ConversationStep.ASK_PROCEED);
@@ -289,17 +328,20 @@ export async function handleIncomingMessage(
     }
     case ConversationStep.OPTIONS: {
       const parsed = planSchema.safeParse(bodyText);
+      const isDestiny = getServiceType(conversation) === "destiny_readings";
+      const optionsMsg = isDestiny ? messages.optionsDestiny : messages.options;
+      const paymentMsg = isDestiny ? messages.paymentInstructionsDestiny : messages.paymentInstructions;
       if (!parsed.success) {
-        return { reply: messages.options };
+        return { reply: optionsMsg };
       }
       const plan = parsePlan(parsed.data);
       if (!plan) {
-        return { reply: messages.options };
+        return { reply: optionsMsg };
       }
 
       await updateUserStatus(user.id, UserStatus.AWAITING_PAYMENT, plan);
       await advanceStep(conversation, ConversationStep.WAITING_PAYMENT);
-      return { reply: messages.paymentInstructions };
+      return { reply: paymentMsg };
     }
     case ConversationStep.WAITING_PAYMENT: {
       if (input.numMedia > 0) {
@@ -417,6 +459,21 @@ export async function handleIncomingMessage(
       await advanceStep(conversation, ConversationStep.AWAITING_VERIFICATION, {
         gender: genderValue
       });
+      const payment = await getLatestPaymentByUserId(user.id);
+      if (payment) {
+        try {
+          const submission = await createSubmission(
+            user.id,
+            conversation.id,
+            payment.id
+          );
+          invokeNotifyAdminEdgeFunction(submission.id).catch((err) =>
+            console.error("[botLogic] Admin notification failed:", err)
+          );
+        } catch (err) {
+          console.error("[botLogic] Create submission / notify admin:", err);
+        }
+      }
       return { reply: messages.confirmation };
     }
     case ConversationStep.AWAITING_VERIFICATION: {
